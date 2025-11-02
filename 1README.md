@@ -1,4 +1,4 @@
-# Adaptive Momentum Submission Bundle
+# Submission (jayyx03) (entry number 36)
 
 Thank you for reviewing this contest deliverable. The archive contains the
 complete Adaptive Momentum trading bot, backtest evidence, and tooling to
@@ -79,3 +79,4 @@ Full metrics and trade logs are available in the `reports/` directory.
 
 Please reach out if anything is unclear or if you encounter issues running the
 code. The package is self-contained and ready for contest submission.
+
