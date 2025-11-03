@@ -72,6 +72,10 @@ class AdaptiveMomentumStrategy(BaseStrategy):
         prices = market.prices
         now = self._ensure_aware(market.timestamp)
 
+        # Expire cooldown automatically once the timeout elapses so new entries can form.
+        if self._cooldown_until and now >= self._cooldown_until:
+            self._cooldown_until = None
+
         if not self._enough_history(prices):
             self.last_signal_data = {"reason": "insufficient_history", "bars": len(prices)}
             return Signal("hold", reason="Insufficient history")
