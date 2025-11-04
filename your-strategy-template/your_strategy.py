@@ -53,6 +53,15 @@ class AdaptiveMomentumStrategy(BaseStrategy):
         self.min_trade_notional = float(config.get("min_trade_notional", 250.0))
         self.cooldown_minutes = max(0, int(config.get("cooldown_minutes", 120)))
         self.slippage_buffer = float(config.get("slippage_buffer", 0.0025))
+        self.trend_window = max(10, int(config.get("trend_window", 36)))
+        self.min_trend_slope = float(config.get("min_trend_slope", 0.006))
+        self.max_volatility = float(config.get("max_volatility", 0.045))
+        self.scale_out_fraction = float(config.get("scale_out_fraction", 0.5))
+        self.time_stop_hours = max(0, int(config.get("time_stop_hours", 36)))
+
+        self.scale_out_fraction = min(max(self.scale_out_fraction, 0.0), 1.0)
+        if self.max_volatility <= 0:
+            self.max_volatility = float("inf")
 
         self._logger = logging.getLogger("strategy.adaptive_momentum")
         self._position_size = 0.0
@@ -61,6 +70,8 @@ class AdaptiveMomentumStrategy(BaseStrategy):
         self._last_signal_payload: Dict[str, Any] = {}
         self._last_trade_time: Optional[datetime] = None
         self._cooldown_until: Optional[datetime] = None
+        self._position_opened_at: Optional[datetime] = None
+        self._scaled_out = False
 
         # Public debugging hook consumed by dashboard logging when present.
         self.last_signal_data: Optional[Dict[str, Any]] = None
@@ -82,6 +93,7 @@ class AdaptiveMomentumStrategy(BaseStrategy):
 
         indicators = self._compute_indicators(prices)
         volatility = max(indicators.volatility, self.min_volatility)
+        trend_slope = self._trend_slope(prices, self.trend_window)
         equity_value = portfolio.cash + portfolio.quantity * market.current_price
         position_value = portfolio.quantity * market.current_price
 
@@ -92,6 +104,7 @@ class AdaptiveMomentumStrategy(BaseStrategy):
             "rsi": round(indicators.rsi, 2),
             "volatility": round(volatility, 5),
             "momentum_pct": round(indicators.momentum_pct, 3),
+            "trend_slope": round(trend_slope, 4),
             "position_value": round(position_value, 2),
             "cash": round(portfolio.cash, 2),
         }
@@ -100,6 +113,14 @@ class AdaptiveMomentumStrategy(BaseStrategy):
             if self._cooldown_until and now < self._cooldown_until:
                 self.last_signal_data["reason"] = "cooldown"
                 return Signal("hold", reason="Cooling down")
+
+            if trend_slope < self.min_trend_slope:
+                self.last_signal_data["reason"] = "trend_slope"
+                return Signal("hold", reason="Trend slope too weak")
+
+            if volatility > self.max_volatility:
+                self.last_signal_data["reason"] = "volatility_ceiling"
+                return Signal("hold", reason="Volatility too high")
 
             if self._should_enter_long(indicators):
                 stop_price = market.current_price * (1 - self.stop_multiple * volatility)
@@ -151,6 +172,7 @@ class AdaptiveMomentumStrategy(BaseStrategy):
             indicators=indicators,
             volatility=volatility,
             portfolio=portfolio,
+            now=now,
         )
         if exit_signal:
             return exit_signal
@@ -172,6 +194,7 @@ class AdaptiveMomentumStrategy(BaseStrategy):
         indicators: _Indicators,
         volatility: float,
         portfolio: Portfolio,
+        now: datetime,
     ) -> Optional[Signal]:
         reasons: List[str] = []
         trailing_stop_price = None
@@ -189,6 +212,42 @@ class AdaptiveMomentumStrategy(BaseStrategy):
         trailing_stop_price = self._last_peak_price * (1 - self.trailing_stop_pct)
         protective_stop = max(stop_price, trailing_stop_price)
 
+        take_profit_price = 0.0
+        if self._avg_entry_price > 0:
+            take_profit_price = self._avg_entry_price * (1 + self.take_profit_multiple * volatility)
+
+        if (
+            self.scale_out_fraction > 0
+            and self.scale_out_fraction < 1
+            and take_profit_price > 0
+            and market_price >= take_profit_price
+            and portfolio.quantity > 0
+            and not self._scaled_out
+        ):
+            size = max(0.0, portfolio.quantity * self.scale_out_fraction)
+            if size > 0:
+                self.last_signal_data.update({
+                    "action": "sell",
+                    "size": size,
+                    "stop": round(protective_stop, 2),
+                    "reasons": "take_profit_scale",
+                })
+                self._scaled_out = True
+                return Signal(
+                    "sell",
+                    size=size,
+                    reason="take_profit_scale",
+                    stop_loss=protective_stop,
+                    entry_price=self._avg_entry_price,
+                )
+
+        if (
+            self.time_stop_hours > 0
+            and self._position_opened_at is not None
+            and now >= self._position_opened_at + timedelta(hours=self.time_stop_hours)
+        ):
+            reasons.append("time_stop")
+
         if market_price <= protective_stop:
             reasons.append("stop_loss")
 
@@ -198,8 +257,7 @@ class AdaptiveMomentumStrategy(BaseStrategy):
         if indicators.rsi <= self.rsi_sell:
             reasons.append("rsi_exit")
 
-        take_profit_price = self._avg_entry_price * (1 + self.take_profit_multiple * volatility)
-        if self._avg_entry_price > 0 and market_price >= take_profit_price:
+        if take_profit_price > 0 and market_price >= take_profit_price:
             reasons.append("take_profit")
 
         if not reasons:
@@ -235,11 +293,15 @@ class AdaptiveMomentumStrategy(BaseStrategy):
             self._position_size = total_size
             self._avg_entry_price = notional / total_size if total_size > 0 else 0.0
             self._last_peak_price = execution_price
+            self._position_opened_at = timestamp
+            self._scaled_out = False
         elif signal.action == "sell" and execution_size > 0:
             self._position_size = max(0.0, self._position_size - execution_size)
             if self._position_size <= 0:
                 self._avg_entry_price = 0.0
                 self._last_peak_price = None
+                self._position_opened_at = None
+                self._scaled_out = False
 
     def get_state(self) -> Dict[str, Any]:
         return {
@@ -248,6 +310,8 @@ class AdaptiveMomentumStrategy(BaseStrategy):
             "last_peak_price": self._last_peak_price,
             "cooldown_until": self._cooldown_until.isoformat() if self._cooldown_until else None,
             "last_trade_time": self._last_trade_time.isoformat() if self._last_trade_time else None,
+            "position_opened_at": self._position_opened_at.isoformat() if self._position_opened_at else None,
+            "scaled_out": self._scaled_out,
         }
 
     def set_state(self, state: Dict[str, Any]) -> None:
@@ -260,6 +324,10 @@ class AdaptiveMomentumStrategy(BaseStrategy):
         last_trade = state.get("last_trade_time")
         if last_trade:
             self._last_trade_time = self._ensure_aware(datetime.fromisoformat(last_trade))
+        opened = state.get("position_opened_at")
+        if opened:
+            self._position_opened_at = self._ensure_aware(datetime.fromisoformat(opened))
+        self._scaled_out = bool(state.get("scaled_out", False))
 
     def _enough_history(self, prices: List[float]) -> bool:
         needed = max(self.slow_period + 5, self.volatility_period + 5, self.rsi_period + 5)
@@ -278,6 +346,16 @@ class AdaptiveMomentumStrategy(BaseStrategy):
             volatility=volatility,
             momentum_pct=momentum_pct,
         )
+
+    @staticmethod
+    def _trend_slope(values: List[float], window: int) -> float:
+        if len(values) <= window:
+            return 0.0
+        start = values[-window]
+        end = values[-1]
+        if start <= 0:
+            return 0.0
+        return (end / start) - 1.0
 
     @staticmethod
     def _ema(values: List[float], period: int) -> float:
