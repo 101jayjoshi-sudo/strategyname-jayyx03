@@ -21,6 +21,14 @@ ROOT = Path(__file__).resolve().parents[1]
 BASE_PATH = ROOT / "base-bot-template"
 STRATEGY_PATH = ROOT / "your-strategy-template"
 
+if not STRATEGY_PATH.exists():
+    STRATEGY_PATH = ROOT / "adaptive-momentum-submission" / "your-strategy-template"
+if not STRATEGY_PATH.exists():
+    STRATEGY_PATH = Path(__file__).resolve().parent / "your-strategy-template"
+
+if not BASE_PATH.exists():
+    BASE_PATH = Path(__file__).resolve().parents[2] / "base-bot-template"
+
 import sys
 
 sys.path.insert(0, str(BASE_PATH))
@@ -103,10 +111,14 @@ def run_backtest(symbol: str, df: pd.DataFrame, *, starting_cash: float, strateg
                 raise KeyError("Unable to identify Close column in downloaded data")
             close_series = df[matches[0]]
     prices = close_series.dropna().astype(float)
-    history_window = max(int(strategy_config.get("slow_period", 72)) * 3, 200)
 
     strategy = AdaptiveMomentumStrategy(strategy_config, exchange=None)
     strategy.prepare()
+
+    slow_period = int(strategy_config.get("slow_period", getattr(strategy, "slow_period", 72)))
+    trend_window = int(strategy_config.get("trend_window", getattr(strategy, "trend_window", 36)))
+    volatility_period = int(strategy_config.get("volatility_period", getattr(strategy, "volatility_period", 48)))
+    history_window = max(slow_period * 3, trend_window * 3, volatility_period * 3, 200)
 
     portfolio = Portfolio(symbol=symbol, cash=starting_cash)
     equity_curve: List[Tuple[datetime, float]] = []
@@ -242,11 +254,29 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run six-month backtests for the adaptive momentum strategy")
     parser.add_argument("--output", default=str(ROOT / "reports" / "backtest-report.md"), help="Path to Markdown summary")
     parser.add_argument("--config", default="{}", help="JSON string with strategy parameter overrides")
+    parser.add_argument("--config-file", help="Path to JSON file with strategy overrides")
     args = parser.parse_args()
 
+    strategy_config: Dict[str, float] = {}
+
+    if args.config_file:
+        config_path = Path(args.config_file)
+        if not config_path.exists():
+            raise SystemExit(f"Config file not found: {config_path}")
+        try:
+            file_payload = json.loads(config_path.read_text(encoding="utf-8"))
+            if not isinstance(file_payload, dict):
+                raise ValueError("Config file must contain a JSON object")
+            strategy_config.update(file_payload)
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise SystemExit(f"Invalid JSON in --config-file: {exc}")
+
     try:
-        strategy_config: Dict[str, float] = json.loads(args.config)
-    except json.JSONDecodeError as exc:
+        inline_config = json.loads(args.config)
+        if not isinstance(inline_config, dict):
+            raise ValueError("Inline --config must be a JSON object")
+        strategy_config.update(inline_config)
+    except (json.JSONDecodeError, ValueError) as exc:
         raise SystemExit(f"Invalid JSON for --config: {exc}")
 
     symbols = ["BTC-USD", "ETH-USD"]
