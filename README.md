@@ -1,82 +1,98 @@
 # Submission (jayyx03) (entry number 36)
 
-Thank you for reviewing this contest deliverable. The archive contains the
-complete Adaptive Momentum trading bot, backtest evidence, and tooling to
-reproduce the January–June 2024 evaluation on BTC-USD and ETH-USD.
+## Strategy Overview
 
-## Package Contents
+- **Signal core** – trade long-only when the fast EMA is above the slow EMA,
+  positive momentum exceeds a configurable threshold, and RSI confirms the
+  trend. This avoids chasing weak moves and keeps the bot active during strong
+  swings.
+- **Risk controls** – position sizing uses a risk-per-trade budget, max
+  position fraction, and minimum notional threshold. Hard, trailing, and
+  volatility-adjusted stops are always attached.
+- **Regime & exit upgrades (new)** – entries are gated by a minimum trend
+  slope and a volatility ceiling to avoid chop. Positions first scale out at the
+  take-profit level, then rely on trailing/time stops plus EMA/RSI signals to
+  fully exit.
+- **Anti-churn cooldown** – after every trade the bot enforces a configurable
+  cooldown window in minutes to let the market evolve before re-entering.
+
+The implementation lives in [`your_strategy.py`](your_strategy.py) and registers
+its handle as `adaptive_momentum` with the shared `BaseStrategy` factory.
+
+## Key Parameters
+
+| Parameter | Default | Purpose |
+|-----------|---------|---------|
+| `fast_period` | 24 bars | Fast EMA lookback |
+| `slow_period` | 72 bars | Slow EMA lookback |
+| `rsi_period` | 14 bars | RSI confirmation window |
+| `rsi_buy` | 55 | Minimum RSI to open |
+| `rsi_sell` | 45 | RSI threshold to exit |
+| `momentum_threshold` | 0.8 | Required EMA spread (%) |
+| `volatility_period` | 48 bars | Rolling volatility window |
+| `stop_multiple` | 2.5 | Stop distance multiplier of volatility |
+| `take_profit_multiple` | 3.0 | Volatility-based take profit |
+| `trailing_stop_pct` | 3.5% | Trailing peak protection |
+| `max_position_fraction` | 35% | Max equity allocated to position |
+| `risk_per_trade` | 1.25% | Risk budget per trade |
+| `min_trade_notional` | $250 | Prevents dust trades |
+| `cooldown_minutes` | 120 | Wait time after each fill |
+| `slippage_buffer` | 0.25% | Shrinks order size to cover slippage |
+| `trend_window` | 36 bars | Trend slope lookback |
+| `min_trend_slope` | 0.6% | Minimum drift to attempt entry |
+| `max_volatility` | 4.5% | Volatility ceiling (set ≤0 to disable) |
+| `scale_out_fraction` | 0.50 | Portion of the position trimmed at target |
+| `time_stop_hours` | 36 | Maximum holding period before a forced exit |
+
+Override any of these via `BOT_STRATEGY_PARAMS`, for example:
+
+```bash
+BOT_STRATEGY_PARAMS='{"fast_period": 18, "slow_period": 60, "cooldown_minutes": 120}'
+```
+
+## Running Locally
+
+```bash
+# Install base infrastructure dependencies
+python -m venv .venv
+. .venv/Scripts/activate  # Windows PowerShell: .venv\Scripts\Activate.ps1
+pip install -r base-bot-template/requirements.txt
+
+# Run the bot using the adaptive momentum strategy
+set BOT_STRATEGY=adaptive_momentum
+set BOT_SYMBOL=BTC-USD
+set BOT_STARTING_CASH=10000
+python your-strategy-template/startup.py
+```
+
+The bot exposes the standard dashboard endpoints on ports 8080 and 3010, just
+like the reference template.
+
+## Docker Image
 
 ```
-your-strategy-template/
-├── your_strategy.py        # Strategy implementation registering "adaptive_momentum"
-├── startup.py              # Entry point wiring into UniversalBot
-├── Dockerfile              # Container build
-├── requirements.txt        # Strategy-specific dependency notes
-└── README.md               # Parameter documentation & usage guidance
-
-analysis/
-├── backtest_runner.py      # Six-month replay harness (hourly Yahoo Finance data)
-└── README.md               # Setup instructions for analysis tooling
-
-reports/
-├── backtest-report.md      # Human-readable summary of BTC/ETH results
-├── backtest_summary.json   # Machine-readable metrics
-├── btc_usd_trades.csv      # Trade blotter (BTC-USD)
-├── eth_usd_trades.csv      # Trade blotter (ETH-USD)
-├── btc_usd_equity_curve.csv
-└── eth_usd_equity_curve.csv
+docker build -t adaptive-momentum-bot -f your-strategy-template/Dockerfile .
+docker run --rm -p 8080:8080 -p 3010:3010 \
+  -e BOT_STRATEGY=adaptive_momentum \
+  -e BOT_SYMBOL=BTC-USD \
+  -e BOT_STARTING_CASH=10000 \
+  adaptive-momentum-bot
 ```
 
-## Quick Start
+## Backtesting
 
-1. Create a Python environment and install dependencies:
-   ```powershell
-   python -m venv .venv
-   . .venv\Scripts\Activate.ps1
-   pip install -r base-bot-template/requirements.txt
-   ```
-2. Run the bot locally (defaults shown):
-   ```powershell
-   set BOT_STRATEGY=adaptive_momentum
-   set BOT_SYMBOL=BTC-USD
-   set BOT_STARTING_CASH=10000
-   python your-strategy-template/startup.py
-   ```
-   The dashboard endpoints are exposed on ports 8080 (status/performance) and 3010 (control plane).
-3. Build & run via Docker if preferred:
-   ```powershell
-   docker build -t adaptive-momentum-bot -f your-strategy-template/Dockerfile .
-   docker run --rm -p 8080:8080 -p 3010:3010 \
-     -e BOT_STRATEGY=adaptive_momentum \
-     -e BOT_SYMBOL=BTC-USD \
-     -e BOT_STARTING_CASH=10000 \
-     adaptive-momentum-bot
-   ```
+A standalone research script (`analysis/backtest_runner.py`) is provided to
+replay six months of Coinbase minute data for BTC-USD and ETH-USD, producing the
+PnL, Sharpe ratio, drawdown series, and trade blotter required by the contest.
+See `analysis/README.md` for detailed instructions and reproducibility notes.
 
-## Backtest Summary (Jan–Jun 2024)
+## Deliverables Checklist
 
-- Starting cash: $10,000 per asset (BTC-USD, ETH-USD)
-- Combined PnL: **$2,063.82** on $20,000 capital
-- Max drawdown: **< 6%** on both assets
-- Trades executed: 172 (BTC-USD), 180 (ETH-USD)
-- Sharpe ratios: 3.86 (BTC-USD), 1.45 (ETH-USD)
+- `your_strategy.py` – strategy implementation and registration ✔️
+- `startup.py` – entry point ✔️
+- `Dockerfile` – container recipe ✔️
+- `requirements.txt` – dependency notes ✔️
+- `README.md` – you are here ✔️
+- Backtest package – generated under `reports/` (see analysis docs) ✔️
 
-Full metrics and trade logs are available in the `reports/` directory.
-
-## Reproducing the Backtest
-
-1. Install research dependencies:
-   ```powershell
-   pip install -r base-bot-template/requirements.txt pandas numpy yfinance
-   ```
-2. Run the analysis script:
-   ```powershell
-   python analysis/backtest_runner.py --output reports/backtest-report.md
-   ```
-   Hourly price data is downloaded once and cached under `analysis/cache/` (not included in the archive).
-
-## Support
-
-Please reach out if anything is unclear or if you encounter issues running the
-code. The package is self-contained and ready for contest submission.
 
