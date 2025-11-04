@@ -17,16 +17,20 @@ pip install pandas numpy yfinance
 ## Running the Backtest
 
 ```bash
-python analysis/backtest_runner.py --output reports/backtest-report.md
+python backtest_runner.py --output backtest-report.md
 ```
 
-Optional parameter overrides can be supplied as JSON:
+Optional parameter overrides can be supplied either inline or via a JSON file:
 
 ```bash
-python analysis/backtest_runner.py --config '{"cooldown_minutes": 90, "momentum_threshold": 0.6}'
+# Inline JSON overrides
+python backtest_runner.py --config '{"cooldown_minutes": 90, "momentum_threshold": 0.6}'
+
+# Using a reusable config file
+python backtest_runner.py --config-file configs/enhanced_params.json
 ```
 
-Outputs are written to `reports/`:
+Outputs are written alongside the runner:
 
 - `backtest-report.md` – aggregate Markdown summary
 - `backtest_summary.json` – machine-readable metrics
