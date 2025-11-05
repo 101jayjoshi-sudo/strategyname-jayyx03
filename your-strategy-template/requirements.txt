@@ -1,0 +1,2 @@
+# Additional dependencies for Adaptive Momentum strategy
+# Base infrastructure requirements are installed from ../base-bot-template/requirements.txt
