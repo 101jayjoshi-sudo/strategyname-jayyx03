@@ -21,28 +21,37 @@ its handle as `adaptive_momentum` with the shared `BaseStrategy` factory.
 
 ## Key Parameters
 
-| Parameter | Default | Purpose |
-|-----------|---------|---------|
-| `fast_period` | 24 bars | Fast EMA lookback |
-| `slow_period` | 72 bars | Slow EMA lookback |
-| `rsi_period` | 14 bars | RSI confirmation window |
-| `rsi_buy` | 55 | Minimum RSI to open |
-| `rsi_sell` | 45 | RSI threshold to exit |
-| `momentum_threshold` | 0.8 | Required EMA spread (%) |
-| `volatility_period` | 48 bars | Rolling volatility window |
-| `stop_multiple` | 2.5 | Stop distance multiplier of volatility |
-| `take_profit_multiple` | 3.0 | Volatility-based take profit |
-| `trailing_stop_pct` | 3.5% | Trailing peak protection |
-| `max_position_fraction` | 35% | Max equity allocated to position |
-| `risk_per_trade` | 1.25% | Risk budget per trade |
-| `min_trade_notional` | $250 | Prevents dust trades |
-| `cooldown_minutes` | 120 | Wait time after each fill |
-| `slippage_buffer` | 0.25% | Shrinks order size to cover slippage |
-| `trend_window` | 36 bars | Trend slope lookback |
-| `min_trend_slope` | 0.6% | Minimum drift to attempt entry |
-| `max_volatility` | 4.5% | Volatility ceiling (set ≤0 to disable) |
-| `scale_out_fraction` | 0.50 | Portion of the position trimmed at target |
-| `time_stop_hours` | 36 | Maximum holding period before a forced exit |
+| Parameter | Default | Contest profile (`configs/enhanced_params.json`) | Purpose |
+|-----------|---------|----------------------------------------------|---------|
+| `fast_period` | 24 bars | **12 bars** | Fast EMA lookback |
+| `slow_period` | 72 bars | **60 bars** | Slow EMA lookback |
+| `rsi_period` | 14 bars | 14 bars | RSI confirmation window |
+| `rsi_buy` | 55 | **57** | Minimum RSI to open |
+| `rsi_sell` | 45 | **50** | RSI threshold to exit |
+| `momentum_threshold` | 0.8 | **0.7** | Required EMA spread (%) |
+| `volatility_period` | 48 bars | 48 bars | Rolling volatility window |
+| `stop_multiple` | 2.5 | **1.8** | Stop distance multiplier of volatility |
+| `take_profit_multiple` | 3.0 | **2.8** | Volatility-based take profit |
+| `trailing_stop_pct` | 3.5% | **2.5%** | Trailing peak protection |
+| `max_position_fraction` | 35% | **50%** | Max equity allocated to position |
+| `risk_per_trade` | 1.25% | **2.0%** | Risk budget per trade |
+| `min_trade_notional` | $250 | $250 | Prevents dust trades |
+| `cooldown_minutes` | 120 | **60** | Wait time after each fill |
+| `slippage_buffer` | 0.25% | 0.25% | Shrinks order size to cover slippage |
+| `trend_window` | 36 bars | 36 bars | Trend slope lookback |
+| `min_trend_slope` | 0.6% | **0.0015%** | Minimum drift to attempt entry |
+| `max_volatility` | 4.5% | **9%** | Volatility ceiling (set ≤0 to disable) |
+| `regime_trend_threshold` | 0.2% | 0.2% | Threshold for switching into trending profile |
+| `sideways_min_trend_slope` | 0.15% | 0.15% | Minimum slope required in sideways mode |
+| `sideways_momentum_threshold` | 0.7 | 0.7 | Momentum gate in sideways mode |
+| `sideways_rsi_buy` | 57 | 57 | RSI gate in sideways mode |
+| `sideways_rsi_sell` | 45 | 45 | RSI exit in sideways mode (defaults to main value) |
+| `sideways_max_volatility` | 9% | 9% | Volatility ceiling in sideways mode |
+| `sideways_cooldown_minutes` | 60 | 60 | Cooldown length in sideways mode |
+| `scale_out_fraction` | 0.50 | **0.35** | Portion of the position trimmed at target |
+| `time_stop_hours` | 36 | **60** | Maximum holding period before a forced exit |
+
+Values in **bold** indicate parameters overridden by the contest-tuned profile. Load the JSON as-is to reproduce the published backtest metrics.
 
 Override any of these via `BOT_STRATEGY_PARAMS`, for example:
 
