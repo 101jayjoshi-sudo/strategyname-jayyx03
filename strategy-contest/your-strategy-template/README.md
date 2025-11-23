@@ -57,4 +57,4 @@ docker run --rm -p 8080:8080 -p 3010:3010 \
 - ✅ Uses Yahoo Finance hourly OHLCV via `yfinance` during backtests
 - ✅ Enforces ≤55% capital per trade and stop-based risk sizing
 - ✅ Provides the required deliverables (`your-strategy-template`, `reports/`, `trade_logic_explanation.md`)
-- ✅ Designed to exceed leaderboard leader (+36.10% PnL) with controlled drawdown (<50%)
+
